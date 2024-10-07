@@ -18,6 +18,7 @@ while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
+
     # Предобработка изображения для повышения качества
     # Применяем размытие и коррекцию контраста
     frame = cv2.GaussianBlur(frame, (5, 5), 0)
