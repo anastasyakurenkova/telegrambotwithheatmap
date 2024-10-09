@@ -57,7 +57,6 @@ def video_handler(update: Update, context: CallbackContext):
         "Выбери, что хочешь сделать с видео, после выбора придётся подождать, программа долго распознаёт нужные элементы:",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("Карта плотности(heatmap)", callback_data='heatmap')],
-            [InlineKeyboardButton("Детекция элементов", callback_data='detection')],
             [InlineKeyboardButton("Накопление heatmap видео", callback_data='accumulate')]
         ])
     )
@@ -70,56 +69,58 @@ def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
     query.answer()
 
-    video_path = context.user_data['video_path']
+    video_path = context.user_data.get('video_path')
     if query.data == 'heatmap':
         result_path = process_video(video_path, 'heatmap')
-        query.message.reply_video(open(result_path, 'rb'))
-    elif query.data == 'detection':
-        result_path = process_video(video_path, 'detection')
-        query.message.reply_video(open(result_path, 'rb'))
+        query.message.reply_photo(open(result_path, 'rb'))  # Send as photo instead
     elif query.data == 'accumulate':
         result_path = process_video(video_path, 'accumulate')
         query.message.reply_video(open(result_path, 'rb'))
 
 
 def process_video(video_path, mode):
-    # Define custom processing logic based on the mode
     cap = cv2.VideoCapture(video_path)
     heatmap = None
     last_frame = None
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    result_file = mode + '_result.mp4'
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(result_file, fourcc, 30, (width, height))
+    if mode == 'heatmap':
+        # Temporary filename for last frame with heatmap
+        result_file = 'last_frame_with_heatmap.jpg'
+    else:
+        result_file = mode + '_result.mp4'
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(result_file, fourcc, 30, (width, height))
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
+
         if mode == 'heatmap' or mode == 'accumulate':
             if heatmap is None:
                 heatmap = np.zeros((height, width), dtype=np.float32)
-            # Process frame and update heatmap as needed here
-            # Update heatmap with detections
+
             last_frame = frame.copy()
             results = model(frame)
             for result in results:
                 heatmap = update_heatmap(heatmap, result.boxes, [0, 1, 2, 3, 5, 7], frame)
-            overlay_frame = generate_heatmap_overlay(frame, heatmap)
-            out.write(overlay_frame)
-        if mode == 'detection':
-            # Process frame for detection
-            results = model(frame)
-            for result in results:
-                for box in result.boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            out.write(frame)
+
+            if mode == 'accumulate':
+                overlay_frame = generate_heatmap_overlay(frame, heatmap)
+                out.write(overlay_frame)
+
+    if mode == 'heatmap':
+        # Generate last frame with its heatmap
+        if last_frame is not None:
+            final_overlay = generate_heatmap_overlay(last_frame, heatmap)
+            cv2.imwrite(result_file, final_overlay)
 
     cap.release()
-    out.release()
+    if mode != 'heatmap':
+        out.release()
+
     return result_file
 
 
